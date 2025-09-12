@@ -35,6 +35,13 @@ db.serialize(() => {
         FOREIGN KEY (id_user) REFERENCES users(id_user)
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS event_log (
+    id_event INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    payload TEXT NOT NULL, -- Guardamos el payload como un string JSON
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
+
     // 4. Insertar los usuarios de prueba
     // Añadimos a Luisa para tener más juego.
     const users = [

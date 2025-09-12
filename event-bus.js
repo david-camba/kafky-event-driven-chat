@@ -1,4 +1,5 @@
 const EventEmitter = require('events');
+const db = require('./database.js'); //for logging events
 
 // --- (Optional) Schema Validation Dependencies ---
 // Uncomment these lines to enable schema validation.
@@ -52,6 +53,12 @@ class EventBusWrapper {
               throw new Error(errorMessage);
             }
             */
+
+            // Log the event without awaiting ("fire-and-forget") to prevent delaying the main flow.
+            // For critical auditing, a more robust solution with a queue and retry logic
+            // should be implemented to handle potential database failures.
+            db.logEvent(eventType, eventPayload)
+              .catch(err => console.error('[EventBus] Failed to log event to database:', err));
 
             // After validation (if enabled), call the original 'emit' method.
             // .call() is used to ensure the correct `this` context for the EventEmitter.

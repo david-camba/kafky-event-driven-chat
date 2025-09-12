@@ -86,9 +86,38 @@ function addMessage(chatId, userId, message) {
     });
 }
 
+/**
+ * Logs a domain event to the event_log table for auditing and traceability.
+ * This function acts as the persistence layer for the Event Store, capturing
+ * every significant action that occurs within the application.
+ *
+ * @param {string} eventType - The unique name of the event (e.g., 'incoming-message', 'message-persisted').
+ * @param {object} payload - The data associated with the event, which will be serialized to JSON.
+ * @returns {Promise<{eventId: number}>} A promise that resolves with the ID of the newly created event log entry.
+ */
+function logEvent(eventType, payload) {
+    return new Promise((resolve, reject) => {
+        const sql = "INSERT INTO event_log (event_type, payload) VALUES (?, ?)";
+
+        // The payload object is stringified to be stored in a single TEXT column.
+        const payloadJson = JSON.stringify(payload);
+        
+        db.run(sql, [eventType, payloadJson], function(err) {
+            if (err) {
+                console.error(`Error logging event '${eventType}':`, err);
+                // In a production system, a failed event log could trigger a critical alert.
+                return reject(err);
+            }
+            // Resolve with the unique ID of the log entry for potential future reference.
+            resolve({ eventId: this.lastID });
+        });
+    });
+}
+
 // Expose the database interaction functions.
 module.exports = { 
     getChatHistory, 
     addMessage,
-    getChatParticipants
+    getChatParticipants,
+    logEvent
 };
