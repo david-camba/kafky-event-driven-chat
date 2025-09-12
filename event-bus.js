@@ -10,9 +10,9 @@ const db = require('./database.js'); //for logging events
 /**
  * @class EventBusWrapper
  * @description A decorator for Node's native EventEmitter that enhances it with
- *              additional capabilities, such as schema validation for event payloads.
- *              This class uses the Proxy pattern to intercept method calls to the
- *              underlying EventEmitter instance without modifying its original behavior.
+ *              guaranteed event persistence, creating a foundational "Event Store".
+ *              This class uses the Proxy pattern to intercept the 'emit' method,
+ *              persisting events before they are published to consumers.
  */
 class EventBusWrapper {
   constructor(eventEmitterInstance) {
@@ -38,7 +38,7 @@ class EventBusWrapper {
         if (prop === 'emit') {
           // We return a new function that wraps the original 'emit'.
           // This allows us to inject our validation logic before the event is published.
-          return (eventType, eventPayload) => {
+          return async (eventType, eventPayload) => {
             
             // --- SCHEMA VALIDATION LOGIC (currently commented out) ---
             // This is where the schema validation would be enforced. It ensures that
@@ -53,28 +53,66 @@ class EventBusWrapper {
               throw new Error(errorMessage);
             }
             */
+            try {
+              // STEP 0: After validation, we emit the "eager" or "optimistic" event.
+              // We directly call the original method on the native EventEmitter
+              // to bypass our own proxy and avoid the logging/kafked logic.
+              // Consumers who need speed over guarantee can subscribe to this.
+              originalMethod.call(target.eventBus, eventType, eventPayload);
 
-            // Log the event without awaiting ("fire-and-forget") to prevent delaying the main flow.
-            // For critical auditing, a more robust solution with a queue and retry logic
-            // should be implemented to handle potential database failures.
-            db.logEvent(eventType, eventPayload)
-              .catch(err => console.error('[EventBus] Failed to log event to database:', err));
+              // STEP 1: Await persistence to the Event Store. This guarantees the event is logged.
+              const { eventId } = await db.logEvent(eventType, eventPayload);
+              console.log(`[Kafky-EventBus] Event '${eventType}' persisted with log ID: ${eventId}`);
 
-            // After validation (if enabled), call the original 'emit' method.
-            // .call() is used to ensure the correct `this` context for the EventEmitter.
-            return originalMethod.call(target.eventBus, eventType, eventPayload);
-          };
+              // STEP 2: Create a new, derived event name and enrich the payload.
+              // The "-KAFKED" suffix is a convention signifying that this event is now
+              // immutable, persisted, and safe for consumers to process.
+              const newEventType = eventType + '-KAFKED';
+              const enrichedPayload = { ...eventPayload, logId: eventId };
+
+              // STEP 3: Publish the enriched, guaranteed event.
+              // We call the original 'emit' method to avoid an infinite logging loop.
+              // Consumers subscribe to the "-KAFKED" version, ensuring they only act
+              // on events that have been successfully persisted.
+              originalMethod.call(target.eventBus, newEventType, enrichedPayload);
+            } catch (error) {
+              console.error(`[Kafky-EventBus] CRITICAL: Failed to log and publish event '${eventType}'. Event lost.`, error);
+              // ARCHITECTURAL NOTE on Resilient Error Handling (Compensation Sagas):
+              // In a distributed system, handling critical failures like this requires a
+              // "Compensation" workflow, often orchestrated via a Saga pattern. The goal
+              // is to maintain data consistency by undoing previous steps in a business process.
+
+              // The robust flow would be:
+              // 1. DEAD-LETTER QUEUE: The failed event is immediately moved to a DLQ for
+              //    auditing and potential manual replay by an engineer.
+
+              // 2. FAILURE EVENT CHAIN: The EventBus emits a specific failure event,
+              //    e.g., `${eventType}-PERSISTENCE_FAILED`. This event must carry a
+              //    `correlationId` that traces back to the original user request.
+
+              // 3. CHOREOGRAPHED ROLLBACK: Services involved in the original process subscribe
+              //    to these failure events to perform compensating actions. For example:
+              //    - A theoretical 'BillingService' might subscribe to undo a charge, then publish an event "CHARGE_UNDONE" 
+              //    - The 'Gateway' service would subscribe to "CHARGE_UNDONE" to know the process failed.
+              //      Since the Gateway holds the original client connection context (`ws`),
+              //      it would be its responsibility to send a real-time error notification
+              //      back to the specific user, telling them to try again.
+
+              // This "chain" of compensating events allows the system to roll back
+              // a failed operation in a fully decoupled manner, ensuring each service is
+              // only responsible for its own state. 
+            };
+          }
         }
-        
+
         // For any other method (like 'on', 'once', etc.), we need to ensure the `this` context is correct.
         // If the property is a function, we bind it to the original EventEmitter instance.
         if (typeof originalMethod === 'function') {
             return originalMethod.bind(target.eventBus);
         }
-
         // If it's not a function, just return the property.
         return originalMethod;
-      },
+      }
     });
   }
 }
@@ -87,6 +125,6 @@ const nativeEventEmitter = new EventEmitter();
 // benefiting from any enhancements (like validation) transparently.
 const eventBus = new EventBusWrapper(nativeEventEmitter);
 
-console.log('[EventBus] The central, enhanced event bus has been created.');
+console.log('[Kafky-EventBus] Kafky Event Bus initialized.');
 
 module.exports = eventBus;

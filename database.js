@@ -114,10 +114,36 @@ function logEvent(eventType, payload) {
     });
 }
 
+/**
+ * Retrieves a single event from the event_log by its ID.
+ * This function is the gateway to our Event Store, the single source of truth.
+ * @param {number} logId - The unique ID of the event log entry.
+ * @returns {Promise<object>} A promise that resolves to the event object { event_type, payload }.
+ */
+function getEventByLogId(logId) {
+    return new Promise((resolve, reject) => {
+        const sql = `SELECT event_type, payload FROM event_log WHERE id_event = ?`;
+        db.get(sql, [logId], (err, row) => {
+            if (err) {
+                console.error("Error fetching event from log:", err);
+                return reject(err);
+            }
+            if (row) {
+                // The payload is saved as a string, so we convert it to Object
+                row.payload = JSON.parse(row.payload);
+                resolve(row);
+            } else {
+                resolve(null); // Event not found
+            }
+        });
+    });
+}
+
 // Expose the database interaction functions.
 module.exports = { 
     getChatHistory, 
     addMessage,
     getChatParticipants,
-    logEvent
+    logEvent,
+    getEventByLogId
 };

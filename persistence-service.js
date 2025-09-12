@@ -11,29 +11,45 @@ class PersistenceService {
      */
     constructor(database) {
         this.db = database;
-        console.log('[PersistenceService] Persistence service initialized.');
+        console.log('[PersistenceService (Projector)] Persistence service initialized.');
     }
 
     /**
-     * Activates the service by subscribing it to relevant events on the event bus.
-     * This should be called once at application startup.
+     * Activates the projector by subscribing it to guaranteed events from the Event Bus.
      */
     listen() {
-        // Subscribe to the high-level 'incoming-message' event published by the gateway.
-        eventBus.on('incoming-message', async (data) => {
-            const { chatId, userId, messageText } = data;
-            console.log(`[PersistenceService] 'incoming-message' event received. Persisting to database...`);
+        // Subscribe to the "-KAFKED" event. This guarantees the projector only acts on
+        // events that have been successfully and immutably stored in the Event Store (`event_log`).
+        eventBus.on('incoming-message-KAFKED', async (data) => {
+            const { logId } = data;
+            console.log(`[PersistenceService (Projector)] 'incoming-message-KAFKED' received. Projecting event with logId: ${logId}`);
             
             try {
-                // 1. Fulfill the primary responsibility: save the message.
-                const newMessage = await this.db.addMessage(chatId, userId, messageText);
-                
-                // 2. Implement "Event Chaining": After successful persistence, publish a more specific event.
-                // This signals that the data is now safely stored and other services (like the dispatcher) can proceed.
-                eventBus.emit('message-persisted', newMessage);
-                
+                // STEP 1: RETRIEVE THE SOURCE OF TRUTH
+                // The projector fetches the original event from the Event Store using the logId.
+                // It does not trust the payload of the '-KAFKED' event itself, only the fact that it occurred.
+
+                const event = await this.db.getEventByLogId(logId);
+                if (!event || event.event_type !== 'incoming-message') {
+                    console.error(`[PersistenceService (Projector)] Invalid or missing event for logId: ${logId}`);
+                    return; // Halt if the source of truth is missing or invalid.
+                }
+
+                // Extract the original data from the persisted event's payload.
+                const { chatId, userId, messageText } = event.payload;
+
+                // STEP 2: PROJECT THE EVENT INTO A READ MODEL
+                // The projector now updates the `messages` table. This table acts as our
+                // "Read Model": a query-optimized copy of the data, ensuring that fetching
+                // chat histories remains fast and efficient.
+                const projectedMessage = await this.db.addMessage(chatId, userId, messageText);
+
+                // STEP 3: PUBLISH THE PROJECTION RESULT
+                // Emit a final event to signal that the read model is up-to-date.               
+                eventBus.emit('message-projected', projectedMessage);    
+                // NOTE: This is "Event Chaining": After successful projecting, publish a more specific event.                           
             } catch (error) {
-                console.error('[PersistenceService] Failed to save message:', error);
+                console.error('[PersistenceService (Projector)] Failed to save message:', error);
 
                 // NOTE: A more robust implementation could emit a 'persistence-error' event here,
                 // allowing other parts of the system to handle the failure.

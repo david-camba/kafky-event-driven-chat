@@ -20,9 +20,14 @@ class ChatDispatcher {
      * This method should be called once when the application starts.
      */
     listen() {
-        // Listens for 'message-persisted' events, which serve as the trigger to broadcast the new message.
-        eventBus.on('message-persisted', (newMessage) => {
-            console.log(`[Dispatcher] 'message-persisted' event received. Dispatching message...`);
+        // Listens for 'message-projected' events, which serve as the trigger to broadcast the new message.
+
+        // NOTE: This service subscribes to 'message-projected' directly, NOT 'message-projected-KAFKED'.
+        // Since dispatching is a non-critical notification and doesn't alter state,
+        // we prioritize a lower latency for the end-user over the absolute guarantee
+        // of logging the projection event itself before notifying.
+        eventBus.on('message-projected', (newMessage) => {
+            console.log(`[Dispatcher] 'message-projected' event received. Dispatching message...`);
             this.dispatch(newMessage.id_chat, newMessage);
         });
     }
