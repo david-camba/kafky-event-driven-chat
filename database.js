@@ -26,21 +26,33 @@ function getChatParticipants(chatId) {
 }
 
 /**
- * Fetches the entire message history for a given chat, ordered by creation time.
+ * Fetches the message history for a given chat, ordered by creation time.
+ * Can optionally fetch only messages created after a specific message ID.
  * @param {number} chatId - The unique ID of the chat.
+ * @param {number} [sinceMessageId=0] - Optional. If provided, fetches only messages with an ID greater than this value.
  * @returns {Promise<Array>} A promise that resolves to an array of message objects.
  */
-function getChatHistory(chatId) {
+function getChatHistory(chatId, sinceMessageId = 0) { // <-- Parámetro añadido con valor por defecto
     return new Promise((resolve, reject) => {
-        const sql = `
-            SELECT m.id_message, m.message, m.created_at, u.id_user, u.username 
+        // La consulta base es la misma
+        let sql = `
+            SELECT m.id_message, m.id_chat, m.message, m.created_at, u.id_user, u.username
             FROM messages m
             JOIN users u ON m.id_user = u.id_user
-            WHERE m.id_chat = ? 
-            ORDER BY m.created_at ASC`;
+            WHERE m.id_chat = ?`;
         
-        // Use db.all() to retrieve all rows matching the query.
-        db.all(sql, [chatId], (err, rows) => {
+        const params = [chatId];
+
+        // Añadimos dinámicamente la condición para el ID del mensaje
+        if (sinceMessageId > 0) {
+            sql += ` AND m.id_message > ?`;
+            params.push(sinceMessageId);
+        }
+
+        sql += ` ORDER BY m.created_at ASC`;
+        
+        // Usamos db.all() para obtener todas las filas que coincidan
+        db.all(sql, params, (err, rows) => {
             if (err) {
                 console.error("Error fetching chat history:", err);
                 reject(err);

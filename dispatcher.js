@@ -1,6 +1,7 @@
 // dispatcher.js - Manages WebSocket room subscriptions and message broadcasting.
 const eventBus = require('./event-bus.js');
 const DomainEvent = require('./domain-event.js');
+const db = require('./database.js');
 
 /**
  * Handles the logic of distributing real-time messages to the correct clients.
@@ -8,11 +9,15 @@ const DomainEvent = require('./domain-event.js');
  */
 class ChatDispatcher {
     /**
-     * @param {Map<number, Set<WebSocket>>} chatRooms - The Map instance to store chat room subscriptions. 
+     * @param {Map<number, Set<WebSocket>>} chatRooms - The Map instance to store chat room subscriptions.
+     * @param {Map<number, Set<WebSocket>>} clients - The Map for all active client connections.
+     * 
      * This is injected to decouple the dispatcher from state management and improve testability.
+     * Beyond, the map "Clients" can be shared by server.js (our gateway) and the Dispatcher.
      */
-    constructor(chatRooms) {
+    constructor(chatRooms, clients) {
         this.chatRooms = chatRooms;
+        this.clients = clients;
         console.log('[Dispatcher] Dispatcher service initialized.');
     }
 
@@ -23,7 +28,7 @@ class ChatDispatcher {
     listen() {
         // Listens for 'message-projected' events, which serve as the trigger to broadcast the new message.
 
-        // NOTE: This service subscribes to 'message-projected' directly, NOT 'message-projected-KAFKED'.
+        // EAGER SUSCRIPTION: This service subscribes to 'message-projected' directly, NOT 'message-projected-KAFKED'.
         // Since dispatching is a non-critical notification and doesn't alter state,
         // we prioritize a lower latency for the end-user over the absolute guarantee
         // of logging the projection event itself before notifying.
@@ -48,6 +53,73 @@ class ChatDispatcher {
 
             eventBus.emit(dispatchedEvent);
         });
+
+        //EAGER SUSCRIPTION
+        eventBus.on('chat-selected-by-user', async (incomingEvent) => {
+            console.log(`[Dispatcher] 'chat-selected' event received. Introducing user in room...`);
+
+            const { payload, metadata } = incomingEvent;
+            const { socket, chatId, userId, lastMessageId } = payload;
+
+            this.subscribe(socket, chatId);
+
+            // We get the history (this could instead trigger an event "history-requested" to be handle by other service
+            // and only send the history when a "history-ready" event is published
+            const history = await db.getChatHistory(chatId, lastMessageId);
+
+            // If there are new messages, we send them
+            if (history.length > 0) {
+                 console.log(`[Dispatcher] Sending ${history.length} new messages to user ${userId} for chat ${chatId}.`);
+                 socket.send(JSON.stringify({ type: 'chat.history', payload: history }));
+            } else {
+                 console.log(`[Dispatcher] User ${userId} is already up to date for chat ${chatId}.`);
+            }
+
+            //We send an event to comunicate the user is now in the room
+            const userInRoomEvent = new DomainEvent(
+                'user-in-room',
+                { 
+                    userId: userId,
+                    chatId: chatId,
+                },
+                {
+                    correlationId: metadata.correlationId,
+                    causationId: incomingEvent.eventId
+                }
+            );
+
+            eventBus.emit(userInRoomEvent);
+        });
+
+        //EAGER SUSCRIPTION
+        eventBus.on('connection-closed', ({ payload: { socket, chatId, userId } }) => {
+            if(!chatId) return; //if the user have no chat, we don't need to do anything
+
+            console.log(`[Dispatcher] 'connection-closed' event received. Deleting user ${userId} from the room ${chatId}...`);
+
+            //clean the connection from our chatRooms map
+            this.unsubscribe(socket, chatId);
+        });
+
+        /**
+         * Register handlers for events that mandate a user's removal from a chat room.
+         * This approach centralizes cleanup logic for multiple event types.
+         */
+        ['connection-closed', 'chat-revoked-by-new-tab'].forEach(eventType => {
+            eventBus.on(eventType, (event) => {
+
+                //we won't delete the room if it's being taken by a new tab
+                let cleanRoom = true;
+                if (eventType === 'chat-revoked-by-new-tab') cleanRoom = false;
+
+                const { payload: { socket, userId, chatId } } = event;
+
+                if (socket && chatId) {
+                    console.log(`[Dispatcher] Handling '${eventType}' for user ${userId} in room ${socket.currentChatId}.`);
+                    this.unsubscribe(socket, chatId, cleanRoom);
+                }
+            });
+        });
     }
     
     /**
@@ -57,10 +129,7 @@ class ChatDispatcher {
      * @param {number} chatId - The ID of the chat room to join.
      */
     subscribe(socket, chatId) {
-        // 1. Clean up any previous subscription for this socket to prevent inconsistencies.
-        this.unsubscribe(socket);
-
-        // 2. Add the socket to the new chat room, creating the room if it's the first member.
+        // Add the socket to the new chat room, creating the room if it's the first member.
         if (!this.chatRooms.has(chatId)) {
             this.chatRooms.set(chatId, new Set());
         }
@@ -74,23 +143,23 @@ class ChatDispatcher {
     }
 
     /**
-     * Unsubscribes a socket from its current chat room.
+     * Unsubscribes a socket from a chat room.
      * @param {WebSocket} socket - The client's WebSocket connection.
+     * @param {int} chatId - The id of the chat room you want to unsuscribe.
+     * @param {boolean} cleanRoom - Decide if delete the room if empty after unsuscribe
      */
-    unsubscribe(socket) {
-        const currentChatId = socket.currentChatId;
-        if (currentChatId && this.chatRooms.has(currentChatId)) {
-            const room = this.chatRooms.get(currentChatId);
+    unsubscribe(socket, chatId, cleanRoom=true) {
+        if (chatId && this.chatRooms.has(chatId)) {
+            const room = this.chatRooms.get(chatId);
             room.delete(socket);
-            console.log(`[Dispatcher] Socket unsubscribed from room ${currentChatId}. Remaining members: ${room.size}`);
+            console.log(`[Dispatcher] Socket unsubscribed from room ${chatId}. Remaining members: ${room.size}`);
 
             // Housekeeping: Remove empty rooms to prevent potential memory leaks.
-            if (room.size === 0) {
-                this.chatRooms.delete(currentChatId);
-                console.log(`[Dispatcher] Room ${currentChatId} is empty and has been removed.`);
+            if (cleanRoom && room.size === 0) {
+                this.chatRooms.delete(chatId);
+                console.log(`[Dispatcher] Room ${chatId} is empty and has been removed.`);
             }
         }
-        socket.currentChatId = null; // Clear the state from the socket instance.
     }
 
     /**
