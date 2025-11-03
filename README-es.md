@@ -26,6 +26,7 @@ El propósito es servir como un ejemplo práctico y didáctico para entender con
 El flujo de un mensaje, desde que se envía hasta que se recibe, sigue este camino, mostrando la interacción entre los componentes y las capas de persistencia.
 
 ```mermaid
+%%{init: {"theme": "dark", "themeVariables": { "primaryColor": "#1e1e1e", "fontSize": "14px", "fontFamily": "Inter" }}}%%
 sequenceDiagram
     participant Frontend
     participant IndexedDB
@@ -36,9 +37,13 @@ sequenceDiagram
     participant EventStore
     participant ReadModel
 
-    Frontend->>Gateway: Envía el evento 'chat.message.new'
+    
+    rect rgba(15, 47, 2, 0.7)
+    Frontend->>Gateway: El usuario manda un mensaje y el Frontend envía el evento 'chat.message.new'
+    end   
 
-    rect rgb(240, 248, 255)
+    %% Cambiamos el color de fondo a un azul oscuro y semitransparente %%
+    rect rgba(28, 44, 73, 0.7)
     note over Gateway,EventStore: 🧠 Backend Event Flow
     Gateway->>EventBus: 0. Publica el evento 'incoming-message' en el EventBus
     EventBus-->>EventBus: 1. (EVENTO OPTIMISTA) Notifica 'incoming-message' (nadie escucha)
@@ -55,14 +60,17 @@ sequenceDiagram
     DispatcherService->>Frontend: 9. Escucha 'message-projected' y difunde el mensaje al destinatario sin esperar al evento garantizado 'message-projected-KAFKED'
     end
 
-    rect rgb(255, 250, 240)
+    %% Cambiamos el color de fondo a un amarillo/ocre oscuro y semitransparente %%
+    rect rgba(87, 72, 34, 0.7)
     note over Frontend,IndexedDB: 💫 Frontend Optimistic Update
     Frontend->>Frontend: 1. Renderiza el mensaje en la UI al instante
     Frontend->>IndexedDB: 2. Después guarda el mensaje en segundo plano
     end
 ```
 *Nota : EventBus intercepta los eventos publicados y SIEMPRE notifica con **Double-Emit**: 
+
 **Eager Emit** : Cuando el evento es publicado (EVENTO OPTIMISTA)
+
 **Kafked Emit** : Después de que el evento ha sido guardado en la EventStore (EVENTO GARANTIZADO)
 
 ### ✨ Estrategia de Suscripción: Velocidad vs. Fiabilidad
