@@ -25,7 +25,12 @@ El propósito es servir como un ejemplo práctico y didáctico para entender con
 
 El flujo de un mensaje, desde que se envía hasta que se recibe, sigue este camino, mostrando la interacción entre los componentes y las capas de persistencia.
 
-```mermaid
+![Diagrama del flujo de mensajes del chat](img/event-flow-diagram-es.svg)
+
+<details>
+<summary>Código fuente del diagrama (Mermaid)</summary>
+
+```text
 %%{init: {"theme": "dark", "themeVariables": { "primaryColor": "#1e1e1e", "fontSize": "14px", "fontFamily": "Inter" }}}%%
 sequenceDiagram
     participant Frontend
@@ -44,7 +49,7 @@ sequenceDiagram
 
     %% Cambiamos el color de fondo a un azul oscuro y semitransparente %%
     rect rgba(28, 44, 73, 0.7)
-    note over Gateway,EventStore: 🧠 Backend Event Flow
+    note over Gateway,ReadModel: 🧠 Backend Event Flow
     Gateway->>EventBus: 0. Publica el evento 'incoming-message' en el EventBus
     EventBus-->>EventBus: 1. (EVENTO OPTIMISTA) Notifica 'incoming-message' (nadie escucha)
     EventBus->>EventStore: 2. Guarda 'incoming-message' en la EventStore (tabla 'event_log')
@@ -67,7 +72,11 @@ sequenceDiagram
     Frontend->>IndexedDB: 2. Después guarda el mensaje en segundo plano
     end
 ```
-*Nota : EventBus intercepta los eventos publicados y SIEMPRE notifica con **Double-Emit**: 
+</details>
+
+#### Nota - Double Emit
+
+EventBus intercepta los eventos publicados y SIEMPRE notifica con **Double-Emit**: 
 
 **Eager Emit** : Cuando el evento es publicado (EVENTO OPTIMISTA)
 

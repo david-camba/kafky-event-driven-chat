@@ -25,7 +25,12 @@ The purpose is to serve as a practical and educational example for understanding
 
 The flow of a message, from the moment it is sent until it is received, follows this path, showcasing the interaction between the components and the persistence layers.
 
-```mermaid
+![Chat Message Sequence Diagram](img/event-flow-diagram-en.svg)
+
+<details>
+<summary>Diagram Source Code (Mermaid)</summary>
+
+```text
 %%{init: {"theme": "dark", "themeVariables": { "primaryColor": "#1e1e1e", "fontSize": "14px", "fontFamily": "Inter" }}}%%
 sequenceDiagram
     participant Frontend
@@ -44,7 +49,7 @@ sequenceDiagram
 
     %% A dark, semi-transparent blue background color %%
     rect rgba(28, 44, 73, 0.7)
-    note over Gateway,EventStore: 🧠 Backend Event Flow
+    note over Gateway,ReadModel: 🧠 Backend Event Flow
     Gateway->>EventBus: 0. Publishes the 'incoming-message' event to the EventBus
     EventBus-->>EventBus: 1. (OPTIMISTIC EVENT) Notifies 'incoming-message' (nobody is listening)
     EventBus->>EventStore: 2. Saves 'incoming-message' in the EventStore ('event_log' table)
@@ -67,8 +72,10 @@ sequenceDiagram
     Frontend->>IndexedDB: 2. Saves the message in the background
     end
 ```
+</details>
 
-*Note: The EventBus intercepts published events and ALWAYS notifies with a **Double-Emit**:
+#### Note - Double Emit
+The EventBus intercepts published events and ALWAYS notifies with a **Double-Emit**:
 
 **Eager Emit**: When the event is published (OPTIMISTIC EVENT)
 
