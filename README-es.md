@@ -3,7 +3,7 @@
 Este proyecto es una aplicación de chat construida con Node.js para demostrar una **Arquitectura Orientada a Eventos (EDA)** en un entorno simulado de microservicios. Implementa patrones como **Event Sourcing** y **CQRS** demostrando la interacción desacoplada de microservicios.
 
 > 📘 **This document is also available in English:**  
-> [Read in English](README-es.md)
+> [Read in English](README.md)
 
 ## Objetivo del Proyecto
 
