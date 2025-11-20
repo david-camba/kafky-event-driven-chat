@@ -10,14 +10,12 @@ const db = require('./database.js');
 class ChatDispatcher {
     /**
      * @param {Map<number, Set<WebSocket>>} chatRooms - The Map instance to store chat room subscriptions.
-     * @param {Map<number, Set<WebSocket>>} clients - The Map for all active client connections.
      * 
      * This is injected to decouple the dispatcher from state management and improve testability.
      * Beyond, the map "Clients" can be shared by server.js (our gateway) and the Dispatcher.
      */
-    constructor(chatRooms, clients) {
-        this.chatRooms = chatRooms;
-        this.clients = clients;
+    constructor() {
+        this.chatRooms = new Map();
         console.log('[Dispatcher] Dispatcher service initialized.');
     }
 

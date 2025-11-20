@@ -29,14 +29,10 @@ const DomainEvent = require('./domain-event.js');
 // Type: Map<userId, WebSocket[]>
 const clients = new Map();
 
-// Define the shared state for chat room subscriptions.
-// This Map instance is injected into the dispatcher to decouple state from logic.
-const chatRooms = new Map();
-
 // Import the service class and create a single instance injecting its dependencies
 // the chatRooms and the users
 const ChatDispatcher = require('./dispatcher.js');
-const dispatcher = new ChatDispatcher(chatRooms, clients);
+const dispatcher = new ChatDispatcher();
 
 const PersistenceService = require('./persistence-service.js');
 const persistenceService = new PersistenceService(db);
